@@ -1,0 +1,41 @@
+# AI review of every pull request, focused on money-safety rather than style.
+# Requires an ANTHROPIC_API_KEY repository secret; without it the job is skipped.
+name: Claude review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+jobs:
+  review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Check for API key
+        id: key
+        env:
+          KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: echo "present=$([ -n "$KEY" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+        if: steps.key.outputs.present == 'true'
+        with:
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@v1
+        if: steps.key.outputs.present == 'true'
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Review this pull request the way the `ledger-reviewer` agent in
+            .claude/agents/ledger-reviewer.md describes: look only for ways the change
+            could create, destroy, duplicate or misreport money, break an invariant in
+            AGENTS.md, or race. Leave inline comments for concrete issues with a failure
+            scenario. If you find nothing, post one short comment saying what you checked.
+          claude_args: |
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Grep,Glob"
